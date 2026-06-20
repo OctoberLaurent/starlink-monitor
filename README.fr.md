@@ -13,7 +13,7 @@ graphiques live, carte d'obstruction polaire, journal d'incidents).
 
 ## Fonctionnalités
 
-- **Polling live** de la parabole (1 sondage/seconde) via `grpcurl` (si la parabole est injoignable, bascule automatique en **mode démo** avec données simulées réalistes).
+- **Polling live** de la parabole (1 sondage/seconde) via `grpcurl` (si la parabole est injoignable, bascule automatique en **mode démo** tout en retentant la vraie parabole toutes les 15 secondes).
 - **Détection d'incidents** :
   - 🛑 `outage` — parabole injoignable / déconnexion
   - 📉 `packet_loss` — taux de perte de paquets > 10 %
@@ -57,12 +57,12 @@ python3 -m venv .venv
 ### Tests unitaires
 
 ```bash
-.venv/bin/pytest                # 29 tests (détection, parsing, persistance, simulateur, routes)
+.venv/bin/pytest                # 34 tests (détection, polling, parsing, persistance, simulateur, routes)
 ```
 
-Les tests couvrent : la détection d'incidents (ouverture/fermeture, sévérités),
-le parsing de la réponse gRPC, la persistance JSONL, les bornes du simulateur
-démo, et les routes Flask.
+Les tests couvrent : la détection d'incidents (ouverture/fermeture, sévérités
+et anti-rebond), la reconnexion automatique, le parsing de la réponse gRPC,
+la persistance JSONL, les bornes du simulateur démo et les routes Flask.
 
 ## Connexion à la vraie parabole
 
@@ -79,6 +79,7 @@ Variables d'environnement :
 |--------------------|------------------------|------|
 | `STARLINK_TARGET`  | `192.168.100.1:9200`   | Cible gRPC de la parabole |
 | `STARLINK_POLL`    | `1.0`                  | Intervalle de sondage (s) |
+| `STARLINK_RETRY`   | `15.0`                 | Intervalle de reconnexion en mode démo automatique (s) |
 | `STARLINK_DEMO`    | (auto)                | `1` pour forcer le mode démo |
 | `STARLINK_GRPCURL` | (auto)                | Chemin du binaire grpcurl |
 | `HOST`             | `127.0.0.1`            | Hôte d'écoute (localhost par défaut) |

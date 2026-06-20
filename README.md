@@ -13,7 +13,7 @@ obstruction map, incident timeline).
 
 ## Features
 
-- **Live polling** of the dish (1 sample/second) via `grpcurl` (if the dish is unreachable, automatically falls back to **demo mode** with realistic simulated data).
+- **Live polling** of the dish (1 sample/second) via `grpcurl` (if the dish is unreachable, automatically falls back to **demo mode** while retrying the real dish every 15 seconds).
 - **Incident detection**:
   - 🛑 `outage` — dish unreachable / disconnection
   - 📉 `packet_loss` — packet loss rate > 10 %
@@ -57,11 +57,12 @@ python3 -m venv .venv
 ### Unit tests
 
 ```bash
-.venv/bin/pytest                # 29 tests (detection, parsing, persistence, simulator, routes)
+.venv/bin/pytest                # 34 tests (detection, polling, parsing, persistence, simulator, routes)
 ```
 
-Tests cover: incident detection (open/close, severities), gRPC response parsing,
-JSONL persistence, demo-simulator bounds, and Flask routes.
+Tests cover: incident detection (open/close, severities and debounce), automatic
+reconnection, gRPC response parsing, JSONL persistence, demo-simulator bounds,
+and Flask routes.
 
 ## Connecting to the real dish
 
@@ -78,6 +79,7 @@ Environment variables:
 |--------------------|------------------------|------|
 | `STARLINK_TARGET`  | `192.168.100.1:9200`   | gRPC target of the dish |
 | `STARLINK_POLL`    | `1.0`                  | Polling interval (s) |
+| `STARLINK_RETRY`   | `15.0`                 | Real-dish retry interval in automatic demo mode (s) |
 | `STARLINK_DEMO`    | (auto)                | `1` to force demo mode |
 | `STARLINK_GRPCURL` | (auto)                | Path to the grpcurl binary |
 | `HOST`             | `127.0.0.1`            | Listen host (localhost by default) |

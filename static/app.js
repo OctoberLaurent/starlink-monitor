@@ -1,5 +1,12 @@
 const $ = (s) => document.querySelector(s);
 const fmt = (n, d = 1) => (n == null || isNaN(n) ? "—" : Number(n).toFixed(d));
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 
 // =========================================================================
 //  Internationalization (EN / FR / ES) — English is the default.
@@ -553,15 +560,17 @@ function renderTimeline(incidents) {
   tl.innerHTML = incidents
     .slice(0, 40)
     .map((i) => {
-      const sev = i.severity || "info";
+      const sev = ["info", "warning", "critical"].includes(i.severity)
+        ? i.severity
+        : "info";
       const p = i.params || {};
       const dur = i.ts_end ? "· " + durStr(i.ts_end - i.ts_start) : "";
       return `<div class="inc ${sev}">
       <div class="bar"></div>
       <div class="body">
-        <div class="ti"><b>${incidentTitle(i.kind, p)}</b><span class="when">${timeStr(i.ts_start)} ${dur}</span></div>
-        <div class="det">${incidentDetail(i.kind, p)}</div>
-        <span class="tag">${incidentTag(i.kind).toUpperCase()}</span>
+        <div class="ti"><b>${escapeHtml(incidentTitle(i.kind, p))}</b><span class="when">${escapeHtml(timeStr(i.ts_start))} ${escapeHtml(dur)}</span></div>
+        <div class="det">${escapeHtml(incidentDetail(i.kind, p))}</div>
+        <span class="tag">${escapeHtml(incidentTag(i.kind).toUpperCase())}</span>
         ${i.ongoing ? '<div class="ongoing"><i></i>' + t("ongoing") + "</div>" : ""}
       </div>
     </div>`;
@@ -590,9 +599,13 @@ function durStr(s) {
   return `${m}m${sec.toString().padStart(2, "0")}s`;
 }
 
+let refreshInProgress = false;
 async function refresh() {
+  if (refreshInProgress) return;
+  refreshInProgress = true;
   try {
     const r = await fetch("/api/state");
+    if (!r.ok) throw new Error(`API returned HTTP ${r.status}`);
     const d = await r.json();
     lastIncidents = d.incidents;
 
@@ -600,7 +613,7 @@ async function refresh() {
     const dot = $("#dot");
     dot.className = "dot " + (ok ? "ok" : "bad");
     $("#connState").innerHTML = ok
-      ? `<b>${t("conn_online")}</b> · ${d.last_sample ? d.last_sample.state : "CONNECTED"}`
+      ? `<b>${t("conn_online")}</b> · ${escapeHtml(d.last_sample ? d.last_sample.state : "CONNECTED")}`
       : `<b style="color:var(--red)">${t("conn_offline")}</b>`;
     $("#connInfo").textContent = ok
       ? d.dish_info
@@ -610,7 +623,8 @@ async function refresh() {
     $("#demoBadge").style.display = d.demo ? "block" : "none";
     $("#subtitle").textContent = d.demo
       ? t("subtitle_demo")
-      : t("subtitle_live", { target: "192.168.100.1:9200" });
+      : t("subtitle_live", { target: d.target });
+    $("#cTarget").textContent = d.target;
 
     const s = d.last_sample;
     if (s) {
@@ -625,12 +639,16 @@ async function refresh() {
         : t("sub_flux_nominal");
       $("#kUpkSub").textContent = t("sub_state", { state: s.state });
       $("#kLatSub").textContent =
-        s.latency_ms > 150 ? t("sub_lat_high") : t("sub_lat_nominal");
+        s.latency_ms > d.thresholds.latency_ms
+          ? t("sub_lat_high")
+          : t("sub_lat_nominal");
       $("#kDropSub").textContent =
-        s.drop_rate > 0.1 ? t("sub_drop_high") : t("sub_lat_nominal");
+        s.drop_rate > d.thresholds.drop_rate
+          ? t("sub_drop_high")
+          : t("sub_lat_nominal");
       $("#kObsSub").textContent = s.currently_obstructed
         ? t("sub_obs_active_s")
-        : s.obstruction_pct > 5
+        : s.obstruction_pct > d.thresholds.obstruction_pct
           ? t("sub_obs_partial")
           : t("sub_obs_clear");
     }
@@ -672,6 +690,8 @@ async function refresh() {
     );
   } catch (e) {
     console.error(e);
+  } finally {
+    refreshInProgress = false;
   }
 }
 

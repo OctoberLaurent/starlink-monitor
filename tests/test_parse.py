@@ -80,3 +80,15 @@ def test_parse_status_handles_missing_fields():
     assert sample.latency_ms == 0.0
     assert sample.state == "CONNECTED"
     assert info["id"] == "?"
+
+
+def test_parse_status_keeps_snr_separate_from_hardware_alerts():
+    payload = {
+        "dishGetStatus": {
+            "alerts": {"snrPersistentlyLow": True},
+            "snrPersistentlyLow": True,
+        }
+    }
+    sample, _ = app._parse_status(payload)
+    assert sample.snr_persistently_low is True
+    assert "snrPersistentlyLow" not in sample.alerts

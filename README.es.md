@@ -14,7 +14,7 @@ de incidentes).
 
 ## Funciones
 
-- **Sondeo en vivo** de la antena (1 muestra/segundo) vía `grpcurl` (si la antena no es accesible, cambia automáticamente a **modo demo** con datos simulados realistas).
+- **Sondeo en vivo** de la antena (1 muestra/segundo) vía `grpcurl` (si la antena no es accesible, cambia automáticamente a **modo demo** y reintenta la antena real cada 15 segundos).
 - **Detección de incidentes**:
   - 🛑 `outage` — antena inaccesible / desconexión
   - 📉 `packet_loss` — tasa de pérdida de paquetes > 10 %
@@ -58,12 +58,12 @@ python3 -m venv .venv
 ### Pruebas unitarias
 
 ```bash
-.venv/bin/pytest                # 29 pruebas (detección, parsing, persistencia, simulador, rutas)
+.venv/bin/pytest                # 34 pruebas (detección, sondeo, parsing, persistencia, simulador, rutas)
 ```
 
-Las pruebas cubren: la detección de incidentes (apertura/cierre, severidades),
-el parsing de la respuesta gRPC, la persistencia JSONL, los límites del
-simulador demo y las rutas de Flask.
+Las pruebas cubren: la detección de incidentes (apertura/cierre, severidades y
+anti-rebote), la reconexión automática, el parsing de la respuesta gRPC, la
+persistencia JSONL, los límites del simulador demo y las rutas de Flask.
 
 ## Conexión a la antena real
 
@@ -80,6 +80,7 @@ Variables de entorno:
 |--------------------|------------------------|---------|
 | `STARLINK_TARGET`  | `192.168.100.1:9200`   | Destino gRPC de la antena |
 | `STARLINK_POLL`    | `1.0`                  | Intervalo de sondeo (s) |
+| `STARLINK_RETRY`   | `15.0`                 | Intervalo de reconexión en modo demo automático (s) |
 | `STARLINK_DEMO`    | (auto)                | `1` para forzar el modo demo |
 | `STARLINK_GRPCURL` | (auto)                | Ruta al binario grpcurl |
 | `HOST`             | `127.0.0.1`            | Host de escucha (localhost por defecto) |

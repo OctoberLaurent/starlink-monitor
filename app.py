@@ -17,6 +17,7 @@ Then open http://127.0.0.1:5050
 Environment variables:
     STARLINK_TARGET  gRPC target (default 192.168.100.1:9200)
     STARLINK_POLL    polling interval in seconds (default 1.0)
+    STARLINK_RETRY   real-dish retry interval in seconds (default 15.0)
     STARLINK_DEMO    "1" to force demo mode
     STARLINK_GRPCURL path to the grpcurl binary
     HOST             listen host (default 127.0.0.1)
@@ -34,6 +35,7 @@ import sys
 import threading
 import time
 from collections import deque
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -104,13 +106,32 @@ def _validate_target(target: str) -> str:
     return _DEFAULT_TARGET
 
 
+def _positive_float_env(name: str, default: float) -> float:
+    """Read a strictly positive float from the environment."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r, falling back to %s", name, raw, default)
+        return default
+    if value <= 0:
+        logger.warning("Invalid %s=%r, falling back to %s", name, raw, default)
+        return default
+    return value
+
+
 # --------------------------------------------------------------------------- #
 #  Configuration
 # --------------------------------------------------------------------------- #
 _DEFAULT_TARGET = "192.168.100.1:9200"
 DISH_TARGET = _validate_target(os.environ.get("STARLINK_TARGET", _DEFAULT_TARGET))
-POLL_INTERVAL = float(os.environ.get("STARLINK_POLL", "1.0"))  # seconds
+POLL_INTERVAL = _positive_float_env("STARLINK_POLL", 1.0)  # seconds
+REAL_RETRY_INTERVAL = _positive_float_env("STARLINK_RETRY", 15.0)
 HISTORY_SAMPLES = 600  # live buffer
+MAX_INCIDENTS = 2_000
+MAX_INCIDENT_LOG_BYTES = 5 * 1024 * 1024
 INCIDENT_FILE = os.path.join(_writable_data_dir(), "incidents.jsonl")
 DEMO_MODE = os.environ.get("STARLINK_DEMO", "").lower() in ("1", "true", "yes")
 GRPCURL_CMD = _resolve_grpcurl()
@@ -124,6 +145,8 @@ TH_OBSTRUCTION = 5.0  # % of time obstructed
 TH_LATENCY_CRITICAL = 400.0
 TH_DROPRATE_CRITICAL = 0.5
 TH_OBSTRUCTION_CRITICAL = 25.0
+INCIDENT_OPEN_SAMPLES = 3
+INCIDENT_CLOSE_SAMPLES = 3
 
 # Starlink hardware alerts -> human label
 ALERT_FIELDS: dict[str, str] = {
@@ -226,19 +249,29 @@ class MonitorState:
         self.connected: bool = False
         self.demo: bool = False
         self.poll_count: int = 0
+        self._bad_counts: dict[str, int] = {}
+        self._good_counts: dict[str, int] = {}
 
     # -- Public API (thread-safe) -----------------------------------------
     def add_sample(
-        self, sample: Sample, *, demo: bool, dish_info: dict[str, Any]
+        self,
+        sample: Sample,
+        *,
+        demo: bool,
+        dish_info: dict[str, Any],
+        connected: bool = True,
+        detect_incidents: bool = True,
     ) -> None:
         with self._lock:
             self.samples.append(sample)
             self.last_sample = sample
             self.dish_info = dish_info
             self.demo = demo
-            self.connected = True
-            self.last_error = ""
-            self._detect(sample)
+            self.connected = connected
+            if connected:
+                self.last_error = ""
+            if detect_incidents:
+                self._detect(sample, resolve_outage=connected)
 
     def mark_disconnected(self, err: str) -> None:
         with self._lock:
@@ -265,6 +298,7 @@ class MonitorState:
             return {
                 "connected": self.connected,
                 "demo": self.demo,
+                "target": DISH_TARGET,
                 "last_error": self.last_error,
                 "poll_count": self.poll_count,
                 "dish_info": self.dish_info,
@@ -281,11 +315,11 @@ class MonitorState:
             }
 
     # -- Incident detection (under lock) -----------------------------------
-    def _detect(self, s: Sample) -> None:
+    def _detect(self, s: Sample, *, resolve_outage: bool = True) -> None:
         now = time.time()
 
         # outage resolved
-        if "outage" in self.open:
+        if resolve_outage and "outage" in self.open:
             self._close("outage", now)
 
         self._check(
@@ -344,9 +378,8 @@ class MonitorState:
                 params={"alert": alert, "label": label},
             )
         # close resolved alerts
-        for alert in ALERT_FIELDS:
-            key = f"alert_{alert}"
-            if key in self.open and alert not in s.alerts:
+        for key in list(self.open):
+            if key.startswith("alert_") and key.removeprefix("alert_") not in s.alerts:
                 self._close(key, now)
 
     def _check(
@@ -360,9 +393,15 @@ class MonitorState:
         params: dict[str, Any] | None = None,
     ) -> None:
         if condition:
-            self._open(kind, severity, title, detail, params=params)
+            self._good_counts[kind] = 0
+            self._bad_counts[kind] = self._bad_counts.get(kind, 0) + 1
+            if kind in self.open or self._bad_counts[kind] >= INCIDENT_OPEN_SAMPLES:
+                self._open(kind, severity, title, detail, params=params)
         else:
-            self._close(kind, now)
+            self._bad_counts[kind] = 0
+            self._good_counts[kind] = self._good_counts.get(kind, 0) + 1
+            if kind in self.open and self._good_counts[kind] >= INCIDENT_CLOSE_SAMPLES:
+                self._close(kind, now)
 
     def _open(
         self,
@@ -386,7 +425,7 @@ class MonitorState:
                 params=params,
             )
             self.open[kind] = inc
-            self.incidents.append(inc)
+            self._remember(inc)
             self._persist(inc)
             logger.warning("Incident opened [%s] %s — %s", severity, title, detail)
         else:
@@ -394,6 +433,22 @@ class MonitorState:
                 inc.severity = Severity.CRITICAL
             inc.detail = detail
             inc.params = params
+
+    def _remember(self, inc: Incident) -> None:
+        """Keep a bounded in-memory history without evicting active incidents."""
+        self.incidents.append(inc)
+        while len(self.incidents) > MAX_INCIDENTS:
+            closed_index = next(
+                (
+                    index
+                    for index, item in enumerate(self.incidents)
+                    if not item.ongoing
+                ),
+                None,
+            )
+            if closed_index is None:
+                break
+            del self.incidents[closed_index]
 
     def _close(self, kind: str, now: float) -> None:
         inc = self.open.pop(kind, None)
@@ -407,8 +462,23 @@ class MonitorState:
         try:
             with open(INCIDENT_FILE, "a", encoding="utf-8") as f:
                 f.write(json.dumps(inc.to_dict(), ensure_ascii=False) + "\n")
+            if os.path.getsize(INCIDENT_FILE) > MAX_INCIDENT_LOG_BYTES:
+                self._compact_incident_log()
         except OSError as e:
             logger.error("Could not persist incident: %s", e)
+
+    def _compact_incident_log(self) -> None:
+        """Atomically rewrite the log with the retained incident history."""
+        temporary = f"{INCIDENT_FILE}.tmp"
+        try:
+            with open(temporary, "w", encoding="utf-8") as f:
+                for incident in self.incidents:
+                    f.write(json.dumps(incident.to_dict(), ensure_ascii=False) + "\n")
+            os.replace(temporary, INCIDENT_FILE)
+        except OSError:
+            with suppress(OSError):
+                os.unlink(temporary)
+            raise
 
 
 STATE = MonitorState()
@@ -473,8 +543,6 @@ def _parse_status(payload: dict[str, Any]) -> tuple[Sample, dict[str, Any]]:
         state_name = str(state_enum)
 
     fired_alerts = [k for k in ALERT_FIELDS if alerts.get(k)]
-    if alerts.get("snrPersistentlyLow") or st.get("snrPersistentlyLow"):
-        fired_alerts.append("snrPersistentlyLow")
 
     sample = Sample(
         ts=time.time(),
@@ -487,7 +555,10 @@ def _parse_status(payload: dict[str, Any]) -> tuple[Sample, dict[str, Any]]:
         uptime_s=int(_to_float(dstate.get("uptimeS"))),
         state=state_name,
         alerts=fired_alerts,
-        snr_persistently_low=bool(alerts.get("snrPersistentlyLow", False)),
+        snr_persistently_low=bool(
+            alerts.get("snrPersistentlyLow", False)
+            or st.get("snrPersistentlyLow", False)
+        ),
     )
     dish_info = {
         "id": info.get("id", "?"),
@@ -623,27 +694,56 @@ SIM = DemoSimulator()
 # --------------------------------------------------------------------------- #
 #  Monitoring loop
 # --------------------------------------------------------------------------- #
+class PollController:
+    """One-step polling state machine with automatic real-dish retries."""
+
+    def __init__(self, *, forced_demo: bool = DEMO_MODE) -> None:
+        self.forced_demo = forced_demo
+        self.fallback_demo = False
+        self.next_real_retry = 0.0
+
+    def step(self, *, now: float | None = None) -> None:
+        current_time = time.monotonic() if now is None else now
+
+        if self.forced_demo:
+            sample, info = SIM.next()
+            STATE.add_sample(sample, demo=True, dish_info=info)
+            return
+
+        should_try_real = not self.fallback_demo or current_time >= self.next_real_retry
+        if should_try_real:
+            payload = _try_grpcurl()
+            if payload is not None:
+                sample, info = _parse_status(payload)
+                STATE.add_sample(sample, demo=False, dish_info=info)
+                self.fallback_demo = False
+                self.next_real_retry = 0.0
+                return
+
+            STATE.mark_disconnected("dish unreachable / grpcurl missing")
+            if not self.fallback_demo:
+                logger.info("Falling back to demo mode (dish unreachable)")
+            self.fallback_demo = True
+            self.next_real_retry = current_time + REAL_RETRY_INTERVAL
+
+        sample, info = SIM.next()
+        STATE.add_sample(
+            sample,
+            demo=True,
+            dish_info=info,
+            connected=False,
+            detect_incidents=False,
+        )
+
+
 def poll_loop() -> None:
     """Infinite dish-polling loop (daemon thread)."""
-    demo = DEMO_MODE
-    if demo:
+    controller = PollController()
+    if controller.forced_demo:
         logger.info("Demo mode forced by STARLINK_DEMO")
     while True:
         try:
-            if demo:
-                sample, info = SIM.next()
-                STATE.add_sample(sample, demo=True, dish_info=info)
-            else:
-                payload = _try_grpcurl()
-                if payload is None:
-                    STATE.mark_disconnected("dish unreachable / grpcurl missing")
-                    # On the very first failure, fall back to demo for display.
-                    if STATE.poll_count == 0:
-                        logger.info("Falling back to demo mode (dish unreachable)")
-                        demo = True
-                else:
-                    sample, info = _parse_status(payload)
-                    STATE.add_sample(sample, demo=False, dish_info=info)
+            controller.step()
         except Exception as e:  # noqa: BLE001  loop safety net
             logger.exception("Error in the monitoring loop: %s", e)
             STATE.mark_disconnected(str(e))
@@ -673,11 +773,13 @@ def _load_persisted_incidents() -> None:
                     d = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if not isinstance(d, dict):
+                    continue
                 if d.get("ongoing"):
                     continue
                 try:
-                    STATE.incidents.append(Incident.from_dict(d))
-                except TypeError:
+                    STATE._remember(Incident.from_dict(d))
+                except (TypeError, ValueError):
                     logger.debug("Skipped persisted incident (schema): %s", line)
     except OSError as e:
         logger.error("Could not read the incident log: %s", e)

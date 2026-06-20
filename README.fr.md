@@ -6,6 +6,8 @@
 
 > 🌐 Langues / Languages / Idiomas: **Français** · [English](README.md) (défaut) · [Español](README.es.md)
 
+![Tableau de bord Starlink Incident Monitor](docs/screenshot.png)
+
 Application web qui surveille en continu une parabole **Starlink** via son API
 gRPC locale (`192.168.100.1:9200`), détecte les incidents et affiche un
 **tableau de bord temps réel très stylé** (thème spatial, glassmorphisme,

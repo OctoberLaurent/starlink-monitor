@@ -6,6 +6,8 @@
 
 > 🌐 Idiomas / Langues: [Français](README.fr.md) · [English](README.md) (default) · **Español**
 
+![Panel de Starlink Incident Monitor](docs/screenshot.png)
+
 Aplicación web que supervisa continuamente una antena **Starlink** a través de
 su API gRPC local (`192.168.100.1:9200`), detecta incidentes y muestra un
 **panel de control en tiempo real muy estilizado** (tema espacial,

@@ -6,6 +6,8 @@
 
 > 🌐 Languages / Idiomas: **English** (default) · [Français](README.fr.md) · [Español](README.es.md)
 
+![Starlink Incident Monitor dashboard](docs/screenshot.png)
+
 A web application that continuously monitors a **Starlink** dish via its local
 gRPC API (`192.168.100.1:9200`), detects incidents, and displays a **very
 stylish real-time dashboard** (space theme, glassmorphism, live charts, polar

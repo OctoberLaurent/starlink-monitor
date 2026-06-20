@@ -5,4 +5,4 @@ pyinstaller>=6.0      # packaging .app
 pytest>=8.0           # tests unitaires
 mypy>=1.10            # analyse statique des types (équivalent PHPStan)
 ruff>=0.5             # linting
-black>=24.0           # formatage
+black>=26.5.1           # formatage

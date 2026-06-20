@@ -86,10 +86,29 @@ def _resolve_grpcurl() -> str:
     return "grpcurl"
 
 
+def _validate_target(target: str) -> str:
+    """Validate a gRPC target as ``host:port`` to prevent argument injection.
+
+    Returns the target if valid, otherwise the default target. Only a plain
+    ``host:port`` is accepted (no flags, spaces, or shell metacharacters).
+    """
+    import re
+
+    if isinstance(target, str) and re.fullmatch(
+        r"[A-Za-z0-9._-]+:\d{1,5}", target.strip()
+    ):
+        return target.strip()
+    logger.warning(
+        "Invalid STARLINK_TARGET %r, falling back to %s", target, _DEFAULT_TARGET
+    )
+    return _DEFAULT_TARGET
+
+
 # --------------------------------------------------------------------------- #
 #  Configuration
 # --------------------------------------------------------------------------- #
-DISH_TARGET = os.environ.get("STARLINK_TARGET", "192.168.100.1:9200")
+_DEFAULT_TARGET = "192.168.100.1:9200"
+DISH_TARGET = _validate_target(os.environ.get("STARLINK_TARGET", _DEFAULT_TARGET))
 POLL_INTERVAL = float(os.environ.get("STARLINK_POLL", "1.0"))  # seconds
 HISTORY_SAMPLES = 600  # live buffer
 INCIDENT_FILE = os.path.join(_writable_data_dir(), "incidents.jsonl")
@@ -401,7 +420,7 @@ STATE = MonitorState()
 def _try_grpcurl() -> dict[str, Any] | None:
     """Query the dish via grpcurl. Returns the parsed JSON or ``None``."""
     try:
-        out = subprocess.run(
+        out = subprocess.run(  # nosec B603  # nosemgrep  # list call, target validated
             [
                 GRPCURL_CMD,
                 "-plaintext",

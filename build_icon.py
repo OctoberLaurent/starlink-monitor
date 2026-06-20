@@ -2,6 +2,7 @@
 
 import math
 import os
+import subprocess
 
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -123,5 +124,8 @@ for s in sizes:
     if s < 1024:
         r2 = img.resize((s * 2, s * 2), Image.LANCZOS)
         r2.save(f"StarlinkMonitor.iconset/icon_{s}x{s}@2x.png")
-os.system("iconutil -c icns StarlinkMonitor.iconset -o StarlinkMonitor.icns")
+subprocess.run(  # nosec  # constant args, build-time only (B603,B607)
+    ["iconutil", "-c", "icns", "StarlinkMonitor.iconset", "-o", "StarlinkMonitor.icns"],
+    check=True,
+)
 print("✅ StarlinkMonitor.icns generated")

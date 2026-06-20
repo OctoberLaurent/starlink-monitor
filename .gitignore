@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Build / packaging
+build/
+dist/
+*.spec.bak
+StarlinkMonitor.iconset/
+StarlinkMonitor.icns
+icon.png
+
+# Données d'exécution
+incidents.jsonl
+
+# macOS
+.DS_Store
+
+# Logs
+*.log

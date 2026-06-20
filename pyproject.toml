@@ -1,0 +1,42 @@
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+extend-exclude = [".venv", "build", "dist", "StarlinkMonitor.iconset"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "C4",       # comprehensions
+    "SIM",      # simplify
+]
+ignore = [
+    "E501",     # longueur de ligne gérée par black
+]
+
+[tool.ruff.lint.per-file-ignores]
+"build_icon.py" = ["E401"]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+extend-exclude = '/(\.venv|build|dist)/'
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+files = ["app.py", "launcher.py"]
+
+# Dépendances sans stubs publiés : on tolère l'absence.
+[[tool.mypy.overrides]]
+module = "webview"
+ignore_missing_imports = true

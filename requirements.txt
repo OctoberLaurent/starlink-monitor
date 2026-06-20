@@ -1,0 +1,3 @@
+# Dépendances d'exécution (lancement depuis la source).
+flask>=3.0
+pywebview>=4.0

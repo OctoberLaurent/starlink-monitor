@@ -1,0 +1,16 @@
+{
+  "name": "starlink-incident-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time Starlink dish monitoring dashboard (frontend tooling).",
+  "scripts": {
+    "lint": "eslint static/app.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "globals": "^15.0.0",
+    "prettier": "^3.3.0"
+  }
+}

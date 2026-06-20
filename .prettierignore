@@ -1,0 +1,8 @@
+.venv/
+build/
+dist/
+node_modules/
+StarlinkMonitor.iconset/
+static/chart.umd.min.js
+package-lock.json
+incidents.jsonl

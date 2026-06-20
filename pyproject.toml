@@ -1,7 +1,7 @@
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-extend-exclude = [".venv", "build", "dist", "StarlinkMonitor.iconset"]
+extend-exclude = [".venv", "build", "dist", "node_modules", "StarlinkMonitor.iconset"]
 
 [tool.ruff.lint]
 select = [
@@ -23,7 +23,7 @@ ignore = [
 [tool.black]
 line-length = 88
 target-version = ["py311"]
-extend-exclude = '/(\.venv|build|dist)/'
+extend-exclude = '/(\.venv|build|dist|node_modules)/'
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

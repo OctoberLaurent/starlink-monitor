@@ -141,3 +141,27 @@ jobs:
         # (subprocess + env-derived target) is a false positive: list-based
         # call with a validated host:port (see app._validate_target).
         run: semgrep --config=p/python app.py launcher.py || true
+
+  # ----------------------------------------------------------------------- #
+  #  Frontend lint: ESLint + Prettier on the extracted JS/CSS/HTML.
+  # ----------------------------------------------------------------------- #
+  frontend:
+    name: Frontend lint (ESLint + Prettier)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint
+        run: npx eslint static/app.js
+
+      - name: Prettier (format check)
+        run: npx prettier --check static/app.js static/style.css templates/index.html
